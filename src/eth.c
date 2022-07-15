@@ -293,9 +293,9 @@ static esp_netif_t *eth_start(void)
     esp_netif_dhcpc_stop(netif);
 
     esp_netif_ip_info_t ip_info;
-    IP4_ADDR(&ip_info.ip, 192, 168, 15, 22);
-   	IP4_ADDR(&ip_info.gw, 192, 168, 15, 1);
-   	IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+    ip_info.ip.addr = ipaddr_addr(CONFIG_EXAMPLE_IP_ADDR);
+    ip_info.netmask.addr = ipaddr_addr(CONFIG_EXAMPLE_NETMASK_ADDR);
+    ip_info.gw.addr = ipaddr_addr(CONFIG_EXAMPLE_GW_ADDR);
     esp_netif_set_ip_info(netif, &ip_info);
 
     esp_eth_start(s_eth_handle);
