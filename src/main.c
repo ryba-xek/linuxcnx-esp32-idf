@@ -33,17 +33,17 @@
 
 static const char *TAG = "example";
 
-static void udp_server_task(void *pvParameters)
+static void IRAM_ATTR udp_server_task(void *pvParameters)
 {
-    char rx_tx_buffer[128];
+    char rx_tx_buffer[64];
     char addr_str[128];
-    int addr_family = (int)pvParameters;
+    int addr_family = (int) pvParameters;
     int ip_protocol = 0;
     struct sockaddr_in6 dest_addr;
 
     while (1) {
         if (addr_family == AF_INET) {
-            struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
+            struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *) &dest_addr;
             dest_addr_ip4->sin_addr.s_addr = htonl(INADDR_ANY);
             dest_addr_ip4->sin_family = AF_INET;
             dest_addr_ip4->sin_port = htons(PORT);
@@ -110,7 +110,7 @@ static void udp_server_task(void *pvParameters)
 #else
             int len = recvfrom(sock, rx_tx_buffer, sizeof(rx_tx_buffer) - 1, 0, (struct sockaddr *)&source_addr, &socklen);
 #endif
-            ESP_LOGI(TAG, "Received %d bytes", len);
+            //ESP_LOGI(TAG, "Received %d bytes", len);
             
             // Error occurred during receiving
             if (len < 0) {
@@ -136,14 +136,17 @@ static void udp_server_task(void *pvParameters)
             }
 
             rx_tx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string...
-            ESP_LOGI(TAG, "Received %d bytes from %s:", len, addr_str);
-            ESP_LOGI(TAG, "%s", rx_tx_buffer);
+            ESP_LOGI(TAG, "Received %d bytes from %s:%d", len, addr_str, ((struct sockaddr_in *)&source_addr)->sin_port);
+            //ESP_LOGI(TAG, "%s", rx_tx_buffer);
 
             // process packet
             esp_err_t process_res = processUdpPacket(rx_tx_buffer, len);
             if (process_res == ESP_OK) {
                 // send feedback
-                int err = sendto(sock, rx_tx_buffer, sizeof(fbPacket), 0, (struct sockaddr *)&source_addr, sizeof(source_addr));
+                
+                int err = sendto(sock, rx_tx_buffer, sizeof(fbPacket), 0, (struct sockaddr *) &source_addr, sizeof(source_addr));
+                // int err = sendto(sock, rx_tx_buffer, len, 0, (struct sockaddr *)&source_addr, sizeof(source_addr));
+                ESP_LOGI(TAG, "sendto(): %d bytes", err);
                 if (err < 0) {
                     ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
                     break;
@@ -157,6 +160,7 @@ static void udp_server_task(void *pvParameters)
             close(sock);
         }
     }
+    
     vTaskDelete(NULL);
 }
 
@@ -184,7 +188,6 @@ static void eth_event_handler(void *arg, esp_event_base_t event_base,
             ESP_LOGI(TAG, "ETHGW: %s", inet_ntoa(ipInfo.gw));
     
 //            ESP_ERROR_CHECK(tcpip_adapter_dhcpc_start(TCPIP_ADAPTER_IF_ETH));
-            //xTaskCreate(udp_server_task, "udp_server", 4096, (void*)AF_INET, 5, NULL);
             break;
         case ETHERNET_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "Ethernet Link Down");
@@ -277,12 +280,10 @@ void app_main(void)
     ESP_ERROR_CHECK(initExecutor());
     
 // #ifdef CONFIG_EXAMPLE_IPV4
-    xTaskCreate(udp_server_task, "udp_server", 4096, (void*)AF_INET, 5, NULL);
+    xTaskCreate(udp_server_task, "udp_server", 8192, (void*) AF_INET, 5, NULL);
 // #endif
 // #ifdef CONFIG_EXAMPLE_IPV6
     // xTaskCreate(udp_server_task, "udp_server", 4096, (void*)AF_INET6, 5, NULL);
 // #endif
-    // while (true) {
-        // control_loop();
-    // }
+    xTaskCreate(control_loop, "control_loop", 8192, (void* ) NULL,  4, NULL);
 }

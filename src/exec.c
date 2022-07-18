@@ -22,10 +22,11 @@
 
 cmdPacket cmd;
 fbPacket fb;
+int64_t ul_watchdog;
 
-bool pwm_enable[6] = { false, false, false, false, false, false };
-const ledc_channel_t ledc_chan[6] = { LEDC_CHANNEL_0, LEDC_CHANNEL_1, LEDC_CHANNEL_2, LEDC_CHANNEL_3, LEDC_CHANNEL_4, LEDC_CHANNEL_5 };
-const int pwm_out_pin[6] = { OUT_00_PIN, OUT_01_PIN, OUT_02_PIN, OUT_03_PIN, OUT_04_PIN, OUT_05_PIN };
+bool pwm_enable[OUT_PIN_COUNT] = { false/*, false, false, false, false, false*/ };
+const ledc_channel_t ledc_chan[OUT_PIN_COUNT] = { LEDC_CHANNEL_0/*, LEDC_CHANNEL_1, LEDC_CHANNEL_2, LEDC_CHANNEL_3, LEDC_CHANNEL_4, LEDC_CHANNEL_5*/ };
+const int pwm_out_pin[OUT_PIN_COUNT] = { OUT_00_PIN/*, OUT_01_PIN, OUT_02_PIN, OUT_03_PIN, OUT_04_PIN, OUT_05_PIN*/ };
 
 volatile unsigned long ul_dirSetup[3] = { 1000, 1000, 1000 }; // x 25 nanosec
 volatile float f_accel_x2[3] = { 1000.0, 1000.0, 1000.0 }; // acceleration*2 step/sec2
@@ -41,9 +42,10 @@ unsigned long ul_accelStep[3] = { 0, 0, 0 };
 
 static const char *TAG = "executor";
 
-void commandHandler() // IRAM_ATTR
+void IRAM_ATTR commandHandler()
 {
-    ESP_LOGI(TAG, "cmd.control = %x", cmd.control);
+    ul_watchdog = esp_timer_get_time(); // new valid packet arrived -> reset watchdog
+    ESP_LOGI(TAG, "cmd.control = %x, pos[0] = %d, pos[1] = %d, pos[2] = %d, vel[0] = %6.1f, vel[1] = %6.1f", cmd.control, cmd.pos[0], cmd.pos[1], cmd.pos[2], cmd.vel[0], cmd.vel[1]);
     
     // set velocity
     if (cmd.control & CTRL_READY) {
@@ -96,7 +98,7 @@ void commandHandler() // IRAM_ATTR
     if (cmd.control & CTRL_PWMFREQ) {
         ESP_LOGI(TAG, "CTRL_PWMFREQ");
         fb.control |= CTRL_PWMFREQ;
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < OUT_PIN_COUNT; i++) {
             if (cmd.pwm[i]) { // set PWM frequency
                 // ledcAttachPin(pwm_pin[i], i * 2);
                 // ledcSetup(i * 2, cmd.pwm[i], 10);
@@ -130,35 +132,35 @@ void commandHandler() // IRAM_ATTR
     }
 }
 
-void readInputs() //IRAM_ATTR
+void IRAM_ATTR readInputs()
 {
     if (IN_00) 
         fb.io = IO_00;
     else
         fb.io = 0;
     
-    if (IN_01)
-        fb.io |= IO_01;
-    if (IN_02)
-        fb.io |= IO_02;
-    if (IN_03)
-        fb.io |= IO_03;
-    if (IN_04)
-        fb.io |= IO_04;
-    if (IN_05)
-        fb.io |= IO_05;
-    if (IN_06)
-        fb.io |= IO_06;
-    if (IN_07)
-        fb.io |= IO_07;
+    // if (IN_01)
+    //     fb.io |= IO_01;
+    // if (IN_02)
+    //     fb.io |= IO_02;
+    // if (IN_03)
+    //     fb.io |= IO_03;
+    // if (IN_04)
+    //     fb.io |= IO_04;
+    // if (IN_05)
+    //     fb.io |= IO_05;
+    // if (IN_06)
+    //     fb.io |= IO_06;
+    // if (IN_07)
+    //     fb.io |= IO_07;
 }
 
-void outputHandler() // IRAM_ATTR
+void IRAM_ATTR outputHandler()
 {
-    static uint16_t last_pwm[6] = { 0, 0, 0, 0, 0, 0 };
+    static uint16_t last_pwm[OUT_PIN_COUNT] = { 0 /*, 0, 0, 0, 0, 0*/ };
     bool enable = cmd.control & CTRL_ENABLE;
 
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < OUT_PIN_COUNT; i++) {
         bool need_set_pwm = false;
         if (pwm_enable[i]) { // output is in PWM mode
             if (enable && cmd.pwm[i] != last_pwm[i]) { // changed
@@ -178,7 +180,7 @@ void outputHandler() // IRAM_ATTR
             }
         } else { // output is in discrete mode
             if (enable)
-                (cmd.io & IO_00) ? OUT_00_H : OUT_00_L;
+                (cmd.io & IO_00) ? OUT_00_H : OUT_00_L; //TODO
             else
                 OUT_00_L;
         }
@@ -219,11 +221,11 @@ esp_err_t processUdpPacket(char *packetBuffer, int len) {
     return ESP_OK;
 }
 
-static bool onTime_0()
+static bool IRAM_ATTR onTime_0()
 {
     static bool b_stepState = false;
     static bool b_dirState = false;
-
+    
     if (b_stepState == false) { // end of period
         if (ul_T[0]) { // there is a period time so a pulse must be started
             if (!b_dirChange[0]) { //direction is good, start a new pulse (step L-H transition)
@@ -256,7 +258,7 @@ static bool onTime_0()
     return false; // return whether we need to yield at the end of ISR
 }
 
-static bool onTime_1()
+static bool IRAM_ATTR onTime_1()
 {
     static bool b_stepState = false;
     static bool b_dirState = false;
@@ -293,7 +295,7 @@ static bool onTime_1()
     return false; // return whether we need to yield at the end of ISR
 }
 
-static bool onTime_2()
+static bool IRAM_ATTR onTime_2()
 {
     static bool b_stepState = false;
     static bool b_dirState = false;
@@ -342,7 +344,7 @@ esp_err_t initExecutor() {
 
     ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
 
-    /*for (int i = 0; i < 6; i++) {
+    /*for (int i = 0; i < OUT_PIN_COUNT; i++) {
         // Prepare and then apply the LEDC PWM channel configuration
         ledc_channel_config_t ledc_channel = {
             .speed_mode     = LEDC_HIGH_SPEED_MODE,
@@ -356,13 +358,6 @@ esp_err_t initExecutor() {
         ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
         pwm_enable[i] = true;
     }*/
-
-    // ESP_ERROR_CHECK(gpio_set_direction(STEP_0_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
-    // ESP_ERROR_CHECK(gpio_set_direction(DIR_0_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
-    // ESP_ERROR_CHECK(gpio_set_direction(STEP_1_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
-    // ESP_ERROR_CHECK(gpio_set_direction(DIR_1_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
-    // ESP_ERROR_CHECK(gpio_set_direction(STEP_2_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
-    // ESP_ERROR_CHECK(gpio_set_direction(DIR_2_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
 
     /* Initialize timers */
     timer_config_t tim0_config = {
@@ -407,10 +402,26 @@ esp_err_t initExecutor() {
     timer_isr_callback_add(TIMER_GROUP_1, TIMER_0, onTime_2, NULL, 0);
     timer_start(TIMER_GROUP_1, TIMER_0);
 
+    gpio_pad_select_gpio(STEP_0_PIN);
+    ESP_ERROR_CHECK(gpio_set_direction(STEP_0_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
+    gpio_pad_select_gpio(DIR_0_PIN);
+    ESP_ERROR_CHECK(gpio_set_direction(DIR_0_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
+    gpio_pad_select_gpio(STEP_1_PIN);
+    ESP_ERROR_CHECK(gpio_set_direction(STEP_1_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
+    gpio_pad_select_gpio(DIR_1_PIN);
+    ESP_ERROR_CHECK(gpio_set_direction(DIR_1_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
+    gpio_pad_select_gpio(STEP_2_PIN);
+    ESP_ERROR_CHECK(gpio_set_direction(STEP_2_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
+    gpio_pad_select_gpio(DIR_2_PIN);
+    ESP_ERROR_CHECK(gpio_set_direction(DIR_2_PIN, GPIO_MODE_OUTPUT)); // TODO: GPIO_MODE_OUTPUT_OD
+
+    ESP_ERROR_CHECK(gpio_set_direction(OUT_00_PIN, GPIO_MODE_OUTPUT));
+    ESP_ERROR_CHECK(gpio_set_direction(IN_00_PIN, GPIO_MODE_INPUT));
+
     return ESP_OK;
 }
 
-float fastInvSqrt(const float x)
+float IRAM_ATTR fastInvSqrt(const float x)
 {
     const float xhalf = x * 0.5f;
     union {
@@ -421,7 +432,7 @@ float fastInvSqrt(const float x)
     return u.x * (1.5f - xhalf * u.x * u.x);
 }
 
-void newT(const int i) // period time calculation
+void IRAM_ATTR newT(const int i) // period time calculation
 {
     //ul_T[i] = 40000000.0f / sqrtf((float)(ul_accelStep[i] * ul_accel_x2[i]));
     ul_T[i] = 40000000.0f * fastInvSqrt((float) ul_accelStep[i] * f_accel_x2[i]); // fast method (>3x)
@@ -429,7 +440,7 @@ void newT(const int i) // period time calculation
     ul_TL[i] = ul_T[i] - ul_TH[i];
 }
 
-void deceleration(const int i)
+void IRAM_ATTR deceleration(const int i)
 {
     if (ul_accelStep[i]) {
         ul_accelStep[i]--;
@@ -440,7 +451,7 @@ void deceleration(const int i)
     }
 }
 
-void acceleration(const int i)
+void IRAM_ATTR acceleration(const int i)
 {
     if (cmd.control & CTRL_ENABLE) {
         ul_accelStep[i]++;
@@ -449,30 +460,45 @@ void acceleration(const int i)
         deceleration(i);
 }
 
-void control_loop()
-{
-    for (int i = 0; i < 3; i++) {
-        if (b_math[i]) {
-            b_math[i] = false;
-            if (!ul_accelStep[i]) { // the axis is stationary
-                long l_pos_error = cmd.pos[i] - fb.pos[i];
-                if (l_pos_error) { // if there is a position error
-                    if ((l_pos_error > 0 && b_dirSignal[i] == true) || (l_pos_error < 0 && b_dirSignal[i] == false)) // the direction is good
-                        acceleration(i);
-                    else { // need to change direction
-                        b_dirSignal[i] = l_pos_error > 0;
-                        b_dirChange[i] = true;
+void IRAM_ATTR control_loop(void *pvParameters)
+{   
+    while (true) {
+        // check packet watchdog
+        int64_t watchdog_intvl = esp_timer_get_time() - ul_watchdog;
+        if (watchdog_intvl > WATCHDOG_TIMEOUT) {
+            //ESP_LOGI(TAG, "Command watchdog triggered [ %lld us ], shutting down all outputs", watchdog_intvl);
+            fb.control = 0;
+            cmd.control = 0;
+            outputHandler();
+            ul_watchdog = esp_timer_get_time();
+        }
+
+        for (int i = 0; i < 3; i++) {
+            if (b_math[i]) {
+                b_math[i] = false;
+                if (!ul_accelStep[i]) { // the axis is stationary
+                    long l_pos_error = cmd.pos[i] - fb.pos[i];
+                    if (l_pos_error) { // if there is a position error
+                        if ((l_pos_error > 0 && b_dirSignal[i] == true) || (l_pos_error < 0 && b_dirSignal[i] == false)) // the direction is good
+                            acceleration(i);
+                        else { // need to change direction
+                            b_dirSignal[i] = l_pos_error > 0;
+                            b_dirChange[i] = true;
+                        }
                     }
-                }
-            } else { // the axis moves
-                if ((cmd.vel[i] > 0.0f && b_dirSignal[i] == true) || (cmd.vel[i] < 0.0f && b_dirSignal[i] == false)) { // the direction is good
-                    if (ul_T[i] > ul_cmd_T[i]) // the speed is low
-                        acceleration(i);
-                    else if (ul_T[i] < ul_cmd_T[i]) // the speed is high
+                } else { // the axis moves
+                    if ((cmd.vel[i] > 0.0f && b_dirSignal[i] == true) || (cmd.vel[i] < 0.0f && b_dirSignal[i] == false)) { // the direction is good
+                        if (ul_T[i] > ul_cmd_T[i]) // the speed is low
+                            acceleration(i);
+                        else if (ul_T[i] < ul_cmd_T[i]) // the speed is high
+                            deceleration(i);
+                    } else // the direction is wrong or the target speed is zero
                         deceleration(i);
-                } else // the direction is wrong or the target speed is zero
-                    deceleration(i);
+                }
             }
         }
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
+
+    vTaskDelete(NULL);
 }
