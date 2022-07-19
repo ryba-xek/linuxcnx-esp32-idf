@@ -45,7 +45,7 @@ static const char *TAG = "executor";
 void IRAM_ATTR commandHandler()
 {
     ul_watchdog = esp_timer_get_time(); // new valid packet arrived -> reset watchdog
-    ESP_LOGI(TAG, "cmd.control = %x, pos[0] = %d, pos[1] = %d, pos[2] = %d, vel[0] = %6.1f, vel[1] = %6.1f", cmd.control, cmd.pos[0], cmd.pos[1], cmd.pos[2], cmd.vel[0], cmd.vel[1]);
+    // ESP_LOGI(TAG, "cmd.control = %x, pos[0] = %d, pos[1] = %d, pos[2] = %d, vel[0] = %6.1f, vel[1] = %6.1f", cmd.control, cmd.pos[0], cmd.pos[1], cmd.pos[2], cmd.vel[0], cmd.vel[1]);
     
     // set velocity
     if (cmd.control & CTRL_READY) {
@@ -57,26 +57,26 @@ void IRAM_ATTR commandHandler()
             else
                 ul_cmd_T[i] = 40000000ul;
             
-            ESP_LOGI(TAG, "Setting %d axis velocity to %lu", i, ul_cmd_T[i]);
+            // ESP_LOGI(TAG, "Setting %d axis velocity to %lu", i, ul_cmd_T[i]);
         }
     }
 
     // have READY status -> return
     if (fb.control & CTRL_READY) {
-        ESP_LOGI(TAG, "have READY state, command processing finished");
+        // ESP_LOGI(TAG, "have READY state, command processing finished");
         return;
     }
 
     // ?
     if (fb.control & (CTRL_DIRSETUP | CTRL_ACCEL | CTRL_PWMFREQ)) {
         fb.control |= CTRL_READY;
-        ESP_LOGI(TAG, "setting READY state");
+        // ESP_LOGI(TAG, "setting READY state");
         return;
     }
     
     // set DIR command
     if (cmd.control & CTRL_DIRSETUP) {
-        ESP_LOGI(TAG, "CTRL_DIRSETUP");
+        // ESP_LOGI(TAG, "CTRL_DIRSETUP");
         fb.control |= CTRL_DIRSETUP;
         for (int i = 0; i < 3; i++)
             ul_dirSetup[i] = cmd.pos[i] / 25; //   25ns / timer tic
@@ -86,7 +86,7 @@ void IRAM_ATTR commandHandler()
     
     // set ACCEL command
     if (cmd.control & CTRL_ACCEL) {
-        ESP_LOGI(TAG, "CTRL_ACCEL");
+        // ESP_LOGI(TAG, "CTRL_ACCEL");
         fb.control |= CTRL_ACCEL;
         for (int i = 0; i < 3; i++)
             f_accel_x2[i] = (float) cmd.pos[i] * 2.0;
@@ -96,7 +96,7 @@ void IRAM_ATTR commandHandler()
     
     // set PWMFREQ command
     if (cmd.control & CTRL_PWMFREQ) {
-        ESP_LOGI(TAG, "CTRL_PWMFREQ");
+        // ESP_LOGI(TAG, "CTRL_PWMFREQ");
         fb.control |= CTRL_PWMFREQ;
         for (int i = 0; i < OUT_PIN_COUNT; i++) {
             if (cmd.pwm[i]) { // set PWM frequency
@@ -176,7 +176,7 @@ void IRAM_ATTR outputHandler()
             if (need_set_pwm) {
                 ESP_ERROR_CHECK(ledc_set_duty(LEDC_HIGH_SPEED_MODE, ledc_chan[i], (uint32_t) last_pwm[i]));
                 ESP_ERROR_CHECK(ledc_update_duty(LEDC_HIGH_SPEED_MODE, ledc_chan[i]));
-                ESP_LOGI(TAG, "Setting %d PWM output to %d", i, last_pwm[i]);
+                // ESP_LOGI(TAG, "Setting %d PWM output to %d", i, last_pwm[i]);
             }
         } else { // output is in discrete mode
             if (enable)
@@ -193,7 +193,7 @@ esp_err_t processUdpPacket(char *packetBuffer, int len) {
     for (int i = 0; i < sizeof(cmd); i++)
         chksum ^= packetBuffer[i];
 
-    ESP_LOGI(TAG, "Checksum %x @ %d, expected: %x", packetBuffer[sizeof(cmd)], sizeof(cmd), chksum);
+    // ESP_LOGI(TAG, "Checksum %x @ %d, expected: %x", packetBuffer[sizeof(cmd)], sizeof(cmd), chksum);
     if (packetBuffer[sizeof(cmd)] == chksum) {
         memcpy(&cmd, packetBuffer, sizeof(cmd));
         // ESP_LOGI(TAG, "cmd = %x", cmd.control);
